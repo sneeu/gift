@@ -5,3 +5,11 @@ It’s a TUI for managing gifs stored on AWS S3 and served by AWS CloudFront. It
 I think it looks pretty cool:
 
 ![Screenshot of gift running in Ghostty on macOS](docs/screenshot.png)
+
+## Install
+
+Install with:
+
+```sh
+brew install sneeu/gift/gift
+```
