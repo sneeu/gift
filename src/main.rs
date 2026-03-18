@@ -13,6 +13,11 @@ mod widgets;
 
 #[tokio::main]
 async fn main() {
+    if std::env::args().any(|a| a == "--version" || a == "-V") {
+        println!("gift {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
     let config = match config::load() {
         Ok(c) => c,
         Err(e) => {
