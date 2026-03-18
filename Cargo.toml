@@ -1,0 +1,35 @@
+[package]
+name = "gift"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "gift"
+path = "src/main.rs"
+
+[dependencies]
+aws-config = "1"
+aws-credential-types = "1"
+aws-sdk-s3 = "1"
+reqwest = "0.12"
+bytes = "1"
+tokio = { version = "1", features = ["full"] }
+ratatui = "0.29"
+crossterm = { version = "0.28", features = ["event-stream"] }
+futures = "0.3"
+gif = "0.13"
+image = "0.25"
+viuer = "0.9"
+fuzzy-matcher = "0.3"
+arboard = "3"
+open = "5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+anyhow = "1"
+thiserror = "2"
+percent-encoding = "2"
+dirs = "5"
+
+[dev-dependencies]
+tempfile = "3"
