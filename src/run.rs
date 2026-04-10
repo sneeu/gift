@@ -218,6 +218,16 @@ fn handle_app_event(
             app.is_loading = false;
             app.set_status(format!("Rename failed: {e}"), true);
         }
+        AppEvent::PreviewFrame { generation, frame } => {
+            if generation == app.preview_generation {
+                app.preview_frames.push(frame);
+            }
+        }
+        AppEvent::PreviewComplete { generation, key } => {
+            if generation == app.preview_generation {
+                app.preview_cache.insert(key, app.preview_frames.clone());
+            }
+        }
         AppEvent::PreviewError { generation, message } => {
             if generation == app.preview_generation {
                 app.set_status(message, true);

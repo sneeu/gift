@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
+use bytes::Bytes;
+use futures::StreamExt;
 use image::DynamicImage;
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+use std::io::Read;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 
@@ -13,6 +16,38 @@ fn frame_dir(key: &str) -> PathBuf {
 
 fn frame_path(dir: &PathBuf, index: usize) -> PathBuf {
     dir.join(format!("{:04}.png", index))
+}
+
+/// Bridges an async download stream to the sync `gif` decoder.
+/// The async side sends `Bytes` chunks; the decoder reads them via `std::io::Read`.
+/// Closing the sender signals EOF.
+struct ChunkReader {
+    rx: std::sync::mpsc::Receiver<Bytes>,
+    current: Bytes,
+    pos: usize,
+}
+
+impl ChunkReader {
+    fn new(rx: std::sync::mpsc::Receiver<Bytes>) -> Self {
+        Self { rx, current: Bytes::new(), pos: 0 }
+    }
+}
+
+impl Read for ChunkReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        loop {
+            if self.pos < self.current.len() {
+                let n = buf.len().min(self.current.len() - self.pos);
+                buf[..n].copy_from_slice(&self.current[self.pos..self.pos + n]);
+                self.pos += n;
+                return Ok(n);
+            }
+            match self.rx.recv() {
+                Ok(chunk) => { self.current = chunk; self.pos = 0; }
+                Err(_) => return Ok(0), // channel closed = EOF
+            }
+        }
+    }
 }
 
 /// Try to load cached frames from disk. Returns `None` if the cache is empty or unreadable.
@@ -46,15 +81,88 @@ async fn load_cached_frames(key: &str) -> Option<Vec<DynamicImage>> {
 /// We maintain a canvas and composite each frame onto it, then apply the disposal method
 /// to prepare for the next frame.
 pub fn decode_gif(data: &[u8]) -> Result<Vec<DynamicImage>> {
+    decode_gif_from_reader(std::io::Cursor::new(data))
+}
+
+/// Streaming variant: decodes from any `Read` source, sending each composited frame via `tx`
+/// as it is decoded. Also returns all frames so the caller can save them to the disk cache.
+fn decode_gif_streaming(
+    reader: impl Read,
+    generation: u64,
+    tx: &mpsc::UnboundedSender<AppEvent>,
+) -> Result<Vec<DynamicImage>> {
     let mut options = gif::DecodeOptions::new();
     options.set_color_output(gif::ColorOutput::RGBA);
-    let mut decoder = options
-        .read_info(std::io::Cursor::new(data))
-        .context("Failed to read GIF header")?;
+    let mut decoder = options.read_info(reader).context("Failed to read GIF header")?;
 
     let gif_w = decoder.width() as u32;
     let gif_h = decoder.height() as u32;
+    let mut canvas = image::RgbaImage::new(gif_w, gif_h);
+    let mut all_frames = Vec::new();
 
+    while let Some(frame) = decoder.read_next_frame().context("Failed to read GIF frame")? {
+        let fl = frame.left as u32;
+        let ft = frame.top as u32;
+        let fw = frame.width as u32;
+        let fh = frame.height as u32;
+
+        let pre_composite = canvas.clone();
+
+        for y in 0..fh {
+            for x in 0..fw {
+                let i = ((y * fw + x) * 4) as usize;
+                let a = frame.buffer[i + 3];
+                if a == 0 {
+                    continue;
+                }
+                let cx = fl + x;
+                let cy = ft + y;
+                if cx < gif_w && cy < gif_h {
+                    canvas.put_pixel(
+                        cx,
+                        cy,
+                        image::Rgba([frame.buffer[i], frame.buffer[i + 1], frame.buffer[i + 2], a]),
+                    );
+                }
+            }
+        }
+
+        let img = DynamicImage::ImageRgba8(canvas.clone());
+        all_frames.push(img.clone());
+        let _ = tx.send(AppEvent::PreviewFrame { generation, frame: img });
+
+        match frame.dispose {
+            gif::DisposalMethod::Background => {
+                for y in 0..fh {
+                    for x in 0..fw {
+                        let cx = fl + x;
+                        let cy = ft + y;
+                        if cx < gif_w && cy < gif_h {
+                            canvas.put_pixel(cx, cy, image::Rgba([0, 0, 0, 0]));
+                        }
+                    }
+                }
+            }
+            gif::DisposalMethod::Previous => {
+                canvas = pre_composite;
+            }
+            _ => {}
+        }
+    }
+
+    if all_frames.is_empty() {
+        anyhow::bail!("GIF has no frames");
+    }
+    Ok(all_frames)
+}
+
+fn decode_gif_from_reader(reader: impl Read) -> Result<Vec<DynamicImage>> {
+    let mut options = gif::DecodeOptions::new();
+    options.set_color_output(gif::ColorOutput::RGBA);
+    let mut decoder = options.read_info(reader).context("Failed to read GIF header")?;
+
+    let gif_w = decoder.width() as u32;
+    let gif_h = decoder.height() as u32;
     let mut canvas = image::RgbaImage::new(gif_w, gif_h);
     let mut frames = Vec::new();
 
@@ -64,17 +172,14 @@ pub fn decode_gif(data: &[u8]) -> Result<Vec<DynamicImage>> {
         let fw = frame.width as u32;
         let fh = frame.height as u32;
 
-        // Snapshot canvas before compositing — needed for DisposalMethod::Previous.
         let pre_composite = canvas.clone();
 
-        // Composite this frame's pixels onto the canvas.
-        // With RGBA output each pixel is 4 bytes; alpha == 0 means transparent ("leave as is").
         for y in 0..fh {
             for x in 0..fw {
                 let i = ((y * fw + x) * 4) as usize;
                 let a = frame.buffer[i + 3];
                 if a == 0 {
-                    continue; // transparent — keep canvas pixel
+                    continue;
                 }
                 let cx = fl + x;
                 let cy = ft + y;
@@ -90,10 +195,8 @@ pub fn decode_gif(data: &[u8]) -> Result<Vec<DynamicImage>> {
 
         frames.push(DynamicImage::ImageRgba8(canvas.clone()));
 
-        // Apply disposal method to set up the canvas for the next frame.
         match frame.dispose {
             gif::DisposalMethod::Background => {
-                // Clear this frame's area to transparent.
                 for y in 0..fh {
                     for x in 0..fw {
                         let cx = fl + x;
@@ -105,10 +208,8 @@ pub fn decode_gif(data: &[u8]) -> Result<Vec<DynamicImage>> {
                 }
             }
             gif::DisposalMethod::Previous => {
-                // Restore to the canvas state before this frame was composited.
                 canvas = pre_composite;
             }
-            // Keep / Any: leave canvas as-is.
             _ => {}
         }
     }
@@ -134,7 +235,8 @@ async fn save_frames(key: &str, frames: &[DynamicImage]) -> Result<()> {
     Ok(())
 }
 
-/// Spawn a background task that loads or fetches GIF frames and sends them via the channel.
+/// Spawn a background task that streams and decodes GIF frames, sending each to the UI
+/// as soon as it is decoded rather than waiting for the full download to complete.
 pub fn spawn_preview(
     key: String,
     base_url: String,
@@ -142,62 +244,74 @@ pub fn spawn_preview(
     tx: mpsc::UnboundedSender<AppEvent>,
 ) {
     tokio::spawn(async move {
-        let result = load_frames(&key, &base_url).await;
-        match result {
-            Ok(frames) => {
-                let _ = tx.send(AppEvent::PreviewReady { generation, key, frames });
-            }
-            Err(e) => {
-                let _ = tx.send(AppEvent::PreviewError {
-                    generation,
-                    message: format!("Preview failed: {e:#}"),
-                });
-            }
+        if let Err(e) = stream_frames(&key, &base_url, generation, &tx).await {
+            let _ = tx.send(AppEvent::PreviewError {
+                generation,
+                message: format!("Preview failed: {e:#}"),
+            });
         }
     });
 }
 
-async fn load_frames(key: &str, base_url: &str) -> Result<Vec<DynamicImage>> {
+async fn stream_frames(
+    key: &str,
+    base_url: &str,
+    generation: u64,
+    tx: &mpsc::UnboundedSender<AppEvent>,
+) -> Result<()> {
     let t0 = std::time::Instant::now();
 
-    // Check disk cache first
+    // Check disk cache first — serve all frames at once if available.
     eprintln!("[{:.3}s] {key}: checking disk cache", t0.elapsed().as_secs_f32());
     if let Some(frames) = load_cached_frames(key).await {
         eprintln!("[{:.3}s] {key}: disk cache hit ({} frames)", t0.elapsed().as_secs_f32(), frames.len());
-        return Ok(frames);
+        let _ = tx.send(AppEvent::PreviewReady { generation, key: key.to_owned(), frames });
+        return Ok(());
     }
-    eprintln!("[{:.3}s] {key}: disk cache miss, starting download", t0.elapsed().as_secs_f32());
+    eprintln!("[{:.3}s] {key}: disk cache miss, starting streaming download+decode", t0.elapsed().as_secs_f32());
 
-    // Fetch from CDN
     let url = format!("{}/{}", base_url.trim_end_matches('/'), key);
     let response = reqwest::get(&url)
         .await
         .with_context(|| format!("Failed to download preview from {url}"))?;
-    let status = response.status();
-    if !status.is_success() {
-        anyhow::bail!("HTTP {status} fetching preview from {url}");
+    if !response.status().is_success() {
+        anyhow::bail!("HTTP {} fetching preview from {url}", response.status());
     }
-    let data = response.bytes().await.context("Failed to read preview response")?;
-    eprintln!("[{:.3}s] {key}: download complete ({} bytes)", t0.elapsed().as_secs_f32(), data.len());
 
-    // decode_gif is CPU-bound (decompresses every frame); run it off the async executor
-    // so it doesn't block a tokio worker thread that the event loop depends on.
-    eprintln!("[{:.3}s] {key}: starting GIF decode", t0.elapsed().as_secs_f32());
-    let frames = tokio::task::spawn_blocking(move || decode_gif(&data))
-        .await
-        .context("decode_gif task panicked")??;
-    eprintln!("[{:.3}s] {key}: GIF decode complete ({} frames)", t0.elapsed().as_secs_f32(), frames.len());
+    // Bridge: async download chunks → sync GIF decoder.
+    let (chunk_tx, chunk_rx) = std::sync::mpsc::channel::<Bytes>();
 
-    // Save to disk cache in the background so the caller gets frames immediately.
+    // Decode runs on a blocking thread, reading from ChunkReader as chunks arrive.
+    let tx_for_decode = tx.clone();
+    let decode_handle = tokio::task::spawn_blocking(move || {
+        decode_gif_streaming(ChunkReader::new(chunk_rx), generation, &tx_for_decode)
+    });
+
+    // Stream download chunks into the channel.
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.context("Download stream error")?;
+        if chunk_tx.send(chunk).is_err() {
+            break; // decoder closed its receiver (e.g. invalid GIF header)
+        }
+    }
+    drop(chunk_tx); // closing the channel signals EOF to the decoder
+    eprintln!("[{:.3}s] {key}: download complete", t0.elapsed().as_secs_f32());
+
+    let frames = decode_handle.await.context("decode task panicked")??;
+    eprintln!("[{:.3}s] {key}: decode complete ({} frames)", t0.elapsed().as_secs_f32(), frames.len());
+
+    let _ = tx.send(AppEvent::PreviewComplete { generation, key: key.to_owned() });
+
+    // Save to disk cache in the background — don't block the caller.
     let key_owned = key.to_owned();
-    let frames_for_cache = frames.clone();
     tokio::spawn(async move {
         eprintln!("[background] {key_owned}: starting cache save");
-        let _ = save_frames(&key_owned, &frames_for_cache).await;
+        let _ = save_frames(&key_owned, &frames).await;
         eprintln!("[background] {key_owned}: cache save complete");
     });
 
-    Ok(frames)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -209,7 +323,6 @@ mod tests {
         let dir = frame_dir("foo/bar baz.gif");
         let dir_str = dir.to_string_lossy();
         assert!(dir_str.starts_with("/tmp/gift/previews/"));
-        // Should not contain raw slashes or spaces in the encoded segment
         let segment = dir_str.strip_prefix("/tmp/gift/previews/").unwrap();
         assert!(!segment.contains('/'));
         assert!(!segment.contains(' '));
