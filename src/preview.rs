@@ -259,16 +259,11 @@ async fn stream_frames(
     generation: u64,
     tx: &mpsc::UnboundedSender<AppEvent>,
 ) -> Result<()> {
-    let t0 = std::time::Instant::now();
-
     // Check disk cache first — serve all frames at once if available.
-    eprintln!("[{:.3}s] {key}: checking disk cache", t0.elapsed().as_secs_f32());
     if let Some(frames) = load_cached_frames(key).await {
-        eprintln!("[{:.3}s] {key}: disk cache hit ({} frames)", t0.elapsed().as_secs_f32(), frames.len());
         let _ = tx.send(AppEvent::PreviewReady { generation, key: key.to_owned(), frames });
         return Ok(());
     }
-    eprintln!("[{:.3}s] {key}: disk cache miss, starting streaming download+decode", t0.elapsed().as_secs_f32());
 
     let url = format!("{}/{}", base_url.trim_end_matches('/'), key);
     let response = reqwest::get(&url)
@@ -296,19 +291,15 @@ async fn stream_frames(
         }
     }
     drop(chunk_tx); // closing the channel signals EOF to the decoder
-    eprintln!("[{:.3}s] {key}: download complete", t0.elapsed().as_secs_f32());
 
     let frames = decode_handle.await.context("decode task panicked")??;
-    eprintln!("[{:.3}s] {key}: decode complete ({} frames)", t0.elapsed().as_secs_f32(), frames.len());
 
     let _ = tx.send(AppEvent::PreviewComplete { generation, key: key.to_owned() });
 
     // Save to disk cache in the background — don't block the caller.
     let key_owned = key.to_owned();
     tokio::spawn(async move {
-        eprintln!("[background] {key_owned}: starting cache save");
         let _ = save_frames(&key_owned, &frames).await;
-        eprintln!("[background] {key_owned}: cache save complete");
     });
 
     Ok(())
