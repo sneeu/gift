@@ -1,16 +1,3 @@
-mod app;
-mod cache;
-mod config;
-mod download;
-mod events;
-mod handlers;
-mod preview;
-mod run;
-mod s3;
-mod search;
-mod ui;
-mod widgets;
-
 #[tokio::main]
 async fn main() {
     if std::env::args().any(|a| a == "--version" || a == "-V") {
@@ -18,7 +5,7 @@ async fn main() {
         return;
     }
 
-    let config = match config::load() {
+    let config = match gift::config::load() {
         Ok(c) => c,
         Err(e) => {
             eprintln!("gift: {e}");
@@ -26,7 +13,7 @@ async fn main() {
         }
     };
 
-    if let Err(e) = run::run(config).await {
+    if let Err(e) = gift::run::run(config).await {
         eprintln!("gift: {e}");
         std::process::exit(1);
     }

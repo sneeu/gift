@@ -45,7 +45,7 @@ async fn load_cached_frames(key: &str) -> Option<Vec<DynamicImage>> {
 /// and may be smaller than the canvas.  Transparent pixels mean "keep whatever was there".
 /// We maintain a canvas and composite each frame onto it, then apply the disposal method
 /// to prepare for the next frame.
-fn decode_gif(data: &[u8]) -> Result<Vec<DynamicImage>> {
+pub fn decode_gif(data: &[u8]) -> Result<Vec<DynamicImage>> {
     let mut options = gif::DecodeOptions::new();
     options.set_color_output(gif::ColorOutput::RGBA);
     let mut decoder = options
@@ -125,7 +125,6 @@ async fn save_frames(key: &str, frames: &[DynamicImage]) -> Result<()> {
     tokio::fs::create_dir_all(&dir).await?;
     for (i, frame) in frames.iter().enumerate() {
         let path = frame_path(&dir, i);
-        // Encode as PNG using the image crate
         let mut buf = Vec::new();
         frame
             .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
@@ -159,10 +158,15 @@ pub fn spawn_preview(
 }
 
 async fn load_frames(key: &str, base_url: &str) -> Result<Vec<DynamicImage>> {
+    let t0 = std::time::Instant::now();
+
     // Check disk cache first
+    eprintln!("[{:.3}s] {key}: checking disk cache", t0.elapsed().as_secs_f32());
     if let Some(frames) = load_cached_frames(key).await {
+        eprintln!("[{:.3}s] {key}: disk cache hit ({} frames)", t0.elapsed().as_secs_f32(), frames.len());
         return Ok(frames);
     }
+    eprintln!("[{:.3}s] {key}: disk cache miss, starting download", t0.elapsed().as_secs_f32());
 
     // Fetch from CDN
     let url = format!("{}/{}", base_url.trim_end_matches('/'), key);
@@ -174,15 +178,24 @@ async fn load_frames(key: &str, base_url: &str) -> Result<Vec<DynamicImage>> {
         anyhow::bail!("HTTP {status} fetching preview from {url}");
     }
     let data = response.bytes().await.context("Failed to read preview response")?;
+    eprintln!("[{:.3}s] {key}: download complete ({} bytes)", t0.elapsed().as_secs_f32(), data.len());
 
     // decode_gif is CPU-bound (decompresses every frame); run it off the async executor
     // so it doesn't block a tokio worker thread that the event loop depends on.
+    eprintln!("[{:.3}s] {key}: starting GIF decode", t0.elapsed().as_secs_f32());
     let frames = tokio::task::spawn_blocking(move || decode_gif(&data))
         .await
         .context("decode_gif task panicked")??;
+    eprintln!("[{:.3}s] {key}: GIF decode complete ({} frames)", t0.elapsed().as_secs_f32(), frames.len());
 
-    // Save to disk cache (best-effort; PNG encoding is slow but save failure is non-fatal)
-    let _ = save_frames(key, &frames).await;
+    // Save to disk cache in the background so the caller gets frames immediately.
+    let key_owned = key.to_owned();
+    let frames_for_cache = frames.clone();
+    tokio::spawn(async move {
+        eprintln!("[background] {key_owned}: starting cache save");
+        let _ = save_frames(&key_owned, &frames_for_cache).await;
+        eprintln!("[background] {key_owned}: cache save complete");
+    });
 
     Ok(frames)
 }
