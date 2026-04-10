@@ -2,7 +2,7 @@ use aws_sdk_s3::Client;
 use crossterm::event::{KeyCode, KeyEvent};
 use tokio::sync::mpsc;
 
-use crate::app::App;
+use crate::app::{App, SortField};
 use crate::cache;
 use crate::config::Config;
 use crate::events::AppEvent;
@@ -63,6 +63,9 @@ pub fn handle(
                 super::common::open_in_browser(app, config, &key);
             }
         }
+        KeyCode::Char('f') => { app.sort_order.toggle_to(SortField::Name); app.sort_items(); }
+        KeyCode::Char('s') => { app.sort_order.toggle_to(SortField::Size); app.sort_items(); }
+        KeyCode::Char('t') => { app.sort_order.toggle_to(SortField::Date); app.sort_items(); }
         KeyCode::Char('r') => spawn_list(app, config, client, tx, true),
         KeyCode::Char('?') => app.enter_help(),
         _ => {}

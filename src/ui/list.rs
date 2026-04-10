@@ -20,11 +20,10 @@ pub fn draw(f: &mut Frame, app: &App) {
     let list_area = chunks[0];
     let status_area = chunks[1];
 
-    // Title: "GIFs (N)" or "GIFs ⠋" while loading
     let title = if app.is_loading {
         format!(" GIFs {} ", app.spinner_char())
     } else {
-        format!(" GIFs ({}) ", app.items.len())
+        format!(" GIFs ({}){} ", app.items.len(), app.sort_order.label())
     };
 
     let items: Vec<ListItem> = app

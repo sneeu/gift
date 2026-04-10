@@ -9,7 +9,7 @@ use ratatui::{
 use crate::app::App;
 
 const HINT_LIST: &str =
-    "j/k Move  Enter Preview  / Search  u Upload  n Rename  d Delete  c Copy URL  r Refresh  ? Help  q Quit";
+    "j/k Move  Enter Preview  / Search  u Upload  n Rename  d Delete  c Copy URL  f/s/t Sort  r Refresh  ? Help  q Quit";
 const HINT_PREVIEW: &str = "Esc Back  j/k Navigate  c Copy URL  o Open  n Rename";
 
 pub fn draw_list(f: &mut Frame, app: &App, area: Rect) {

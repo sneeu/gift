@@ -176,6 +176,7 @@ fn handle_app_event(
     match event {
         AppEvent::ListResult(Ok(items)) => {
             app.items = items;
+            app.sort_items();
             app.is_loading = false;
             // Clamp selected to valid range
             if app.selected >= app.items.len() && !app.items.is_empty() {

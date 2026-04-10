@@ -4,6 +4,58 @@ use ratatui::layout::Rect;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum SortField {
+    Name,
+    Size,
+    Date,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SortDir {
+    Asc,
+    Desc,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SortOrder {
+    pub field: SortField,
+    pub dir: SortDir,
+}
+
+impl Default for SortOrder {
+    fn default() -> Self {
+        Self { field: SortField::Date, dir: SortDir::Desc }
+    }
+}
+
+impl SortOrder {
+    pub fn toggle_to(&mut self, field: SortField) {
+        if self.field == field {
+            self.dir = match self.dir {
+                SortDir::Asc => SortDir::Desc,
+                SortDir::Desc => SortDir::Asc,
+            };
+        } else {
+            self.field = field;
+            self.dir = SortDir::Asc;
+        }
+    }
+
+    pub fn label(&self) -> String {
+        let field = match self.field {
+            SortField::Name => "name",
+            SortField::Size => "size",
+            SortField::Date => "time",
+        };
+        let dir = match self.dir {
+            SortDir::Asc => "↑",
+            SortDir::Desc => "↓",
+        };
+        format!(" [{field} {dir}]")
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GifItem {
     pub key: String,
@@ -64,6 +116,7 @@ pub struct App {
     pub search_selected: usize,
     /// Rect of the right pane in Preview mode — set during draw, read post-draw for viuer.
     pub preview_pane_rect: Option<Rect>,
+    pub sort_order: SortOrder,
     /// Incremented every time we start loading a new preview.  Tasks include the generation
     /// at spawn time; stale results are ignored if the counter has moved on.
     pub preview_generation: u64,
@@ -95,6 +148,7 @@ impl App {
             preview_pane_rect: None,
             preview_generation: 0,
             preview_cache: HashMap::new(),
+            sort_order: SortOrder::default(),
         }
     }
 
@@ -115,6 +169,24 @@ impl App {
         match self.prev_mode {
             AppMode::Search => self.search_selected_item(),
             _ => self.selected_item(),
+        }
+    }
+
+    pub fn sort_items(&mut self) {
+        let desc = self.sort_order.dir == SortDir::Desc;
+        match self.sort_order.field {
+            SortField::Name => self.items.sort_unstable_by(|a, b| {
+                let o = a.key.cmp(&b.key);
+                if desc { o.reverse() } else { o }
+            }),
+            SortField::Size => self.items.sort_unstable_by(|a, b| {
+                let o = a.size.cmp(&b.size);
+                if desc { o.reverse() } else { o }
+            }),
+            SortField::Date => self.items.sort_unstable_by(|a, b| {
+                let o = a.last_modified.cmp(&b.last_modified);
+                if desc { o.reverse() } else { o }
+            }),
         }
     }
 
