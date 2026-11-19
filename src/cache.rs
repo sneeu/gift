@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::app::GifItem;
 
-const TTL_SECS: u64 = 5 * 60;
+const TTL_SECS: u64 = 24 * 60 * 60;
 
 #[derive(Serialize, Deserialize)]
 struct CacheFile {
@@ -37,10 +37,6 @@ pub async fn load_listing() -> Option<Vec<GifItem>> {
     } else {
         None
     }
-}
-
-pub async fn invalidate_listing() {
-    let _ = tokio::fs::remove_file(cache_path()).await;
 }
 
 pub async fn save_listing(items: &[GifItem]) -> Result<()> {

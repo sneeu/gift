@@ -1,4 +1,6 @@
+use crate::search::fuzzy_search;
 use crate::widgets::text_input::TextInput;
+use fuzzy_matcher::skim::SkimMatcherV2;
 use image::DynamicImage;
 use ratatui::layout::Rect;
 use std::collections::HashMap;
@@ -188,6 +190,33 @@ impl App {
                 if desc { o.reverse() } else { o }
             }),
         }
+    }
+
+    /// Replace the listing, keeping the selection on the same key and search results
+    /// pointing at valid indices.
+    pub fn set_items(&mut self, items: Vec<GifItem>) {
+        let selected_key = self.selected_item().map(|i| i.key.clone());
+        self.items = items;
+        self.sort_items();
+        self.selected = selected_key
+            .and_then(|k| self.items.iter().position(|i| i.key == k))
+            .unwrap_or(self.selected)
+            .min(self.items.len().saturating_sub(1));
+        if self.mode == AppMode::Search || !self.search_results.is_empty() {
+            self.update_search_results();
+        }
+    }
+
+    /// Recompute search results for the current query, clamping the selection.
+    pub fn update_search_results(&mut self) {
+        let matcher = SkimMatcherV2::default();
+        self.search_results = fuzzy_search(&matcher, self.search_input.value(), &self.items)
+            .into_iter()
+            .map(|m| m.index)
+            .collect();
+        self.search_selected = self
+            .search_selected
+            .min(self.search_results.len().saturating_sub(1));
     }
 
     // --- State transitions ---
@@ -463,6 +492,38 @@ mod tests {
         app.items = vec![item("a.gif"), item("b.gif")];
         app.selected = 1;
         assert_eq!(app.selected_item().unwrap().key, "b.gif");
+    }
+
+    #[test]
+    fn set_items_keeps_selection_on_same_key() {
+        let mut app = App::new();
+        app.sort_order = SortOrder { field: SortField::Name, dir: SortDir::Asc };
+        app.set_items(vec![item("b.gif"), item("c.gif")]);
+        app.selected = 1; // c.gif
+        app.set_items(vec![item("a.gif"), item("b.gif"), item("c.gif")]);
+        assert_eq!(app.selected_item().unwrap().key, "c.gif");
+    }
+
+    #[test]
+    fn set_items_clamps_selection_when_key_removed() {
+        let mut app = App::new();
+        app.set_items(vec![item("a.gif"), item("b.gif"), item("c.gif")]);
+        app.selected = 2;
+        let removed = app.selected_item().unwrap().key.clone();
+        let remaining = app.items.iter().filter(|i| i.key != removed).cloned().collect();
+        app.set_items(remaining);
+        assert_eq!(app.selected, 1);
+    }
+
+    #[test]
+    fn set_items_refreshes_search_indices() {
+        let mut app = App::new();
+        app.set_items(vec![item("a.gif"), item("b.gif"), item("c.gif")]);
+        app.enter_search();
+        app.search_selected = 2;
+        app.set_items(vec![item("a.gif")]);
+        assert_eq!(app.search_results, vec![0]);
+        assert_eq!(app.search_selected, 0);
     }
 
     #[test]

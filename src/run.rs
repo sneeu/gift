@@ -174,14 +174,10 @@ fn handle_app_event(
     tx: &mpsc::UnboundedSender<AppEvent>,
 ) {
     match event {
+        AppEvent::ListCached(items) => app.set_items(items),
         AppEvent::ListResult(Ok(items)) => {
-            app.items = items;
-            app.sort_items();
+            app.set_items(items);
             app.is_loading = false;
-            // Clamp selected to valid range
-            if app.selected >= app.items.len() && !app.items.is_empty() {
-                app.selected = app.items.len() - 1;
-            }
         }
         AppEvent::ListResult(Err(e)) => {
             app.is_loading = false;

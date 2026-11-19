@@ -5,6 +5,8 @@ use crate::app::GifItem;
 /// Results sent from background tasks back to the event loop.
 #[derive(Debug)]
 pub enum AppEvent {
+    /// Cached listing loaded; an S3 refresh is still in flight.
+    ListCached(Vec<GifItem>),
     /// S3 listing completed.
     ListResult(anyhow::Result<Vec<GifItem>>),
     /// Upload completed with the public URL.

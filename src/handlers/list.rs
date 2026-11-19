@@ -89,11 +89,11 @@ pub fn spawn_list(
     let bucket = config.bucket.clone();
     let tx = tx.clone();
     tokio::spawn(async move {
-        if force {
-            cache::invalidate_listing().await;
-        } else if let Some(items) = cache::load_listing().await {
-            let _ = tx.send(AppEvent::ListResult(Ok(items)));
-            return;
+        // Show the cached listing immediately, then always refresh from S3.
+        if !force {
+            if let Some(items) = cache::load_listing().await {
+                let _ = tx.send(AppEvent::ListCached(items));
+            }
         }
         let result = s3::list_all(&client, &bucket).await;
         if let Ok(ref items) = result {

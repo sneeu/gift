@@ -1,12 +1,10 @@
 use aws_sdk_s3::Client;
 use crossterm::event::{KeyCode, KeyEvent};
-use fuzzy_matcher::skim::SkimMatcherV2;
 use tokio::sync::mpsc;
 
 use crate::app::App;
 use crate::config::Config;
 use crate::events::AppEvent;
-use crate::search::fuzzy_search;
 
 pub fn handle(
     app: &mut App,
@@ -38,16 +36,10 @@ pub fn handle(
         KeyCode::Down => app.search_move_down(),
         _ => {
             if app.search_input.handle_key(key) {
-                update_results(app);
+                app.search_selected = 0;
+                app.update_search_results();
             }
         }
     }
 }
 
-fn update_results(app: &mut App) {
-    let matcher = SkimMatcherV2::default();
-    let query = app.search_input.value().to_owned();
-    let results = fuzzy_search(&matcher, &query, &app.items);
-    app.search_results = results.into_iter().map(|m| m.index).collect();
-    app.search_selected = 0;
-}
