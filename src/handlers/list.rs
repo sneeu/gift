@@ -29,18 +29,18 @@ pub fn handle(
             if !app.items.is_empty() {
                 let key_str = app.selected_item().map(|i| i.key.clone()).unwrap_or_default();
                 app.enter_preview();
-                if !app.load_preview_cached(&key_str) {
-                    crate::preview::spawn_preview(
-                        key_str,
-                        config.base_url.clone(),
-                        app.preview_generation,
-                        tx.clone(),
-                    );
-                }
+                super::common::show_s3_preview(app, config, tx, key_str);
             }
         }
         KeyCode::Char('/') => app.enter_search(),
         KeyCode::Char('u') => app.enter_upload(),
+        KeyCode::Char('g') => {
+            if config.giphy_api_key.is_empty() {
+                app.set_status("Set giphy_api_key in ~/.config/gift.toml to search Giphy", true);
+            } else {
+                app.enter_giphy();
+            }
+        }
         KeyCode::Char('n') => {
             if !app.items.is_empty() {
                 app.enter_rename();

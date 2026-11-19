@@ -1,5 +1,6 @@
 pub mod common;
 pub mod delete;
+pub mod giphy;
 pub mod help;
 pub mod list;
 pub mod preview;

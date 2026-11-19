@@ -13,6 +13,9 @@ pub struct Config {
     pub aws_access_key: String,
     #[serde(default)]
     pub aws_secret_key: String,
+    /// Enables Giphy search. Get one at https://developers.giphy.com/dashboard/
+    #[serde(default)]
+    pub giphy_api_key: String,
 }
 
 impl Config {
@@ -34,7 +37,8 @@ pub fn load() -> Result<Config> {
              \t# Credentials are optional here — the AWS SDK will also check\n\
              \t# AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars and ~/.aws/credentials\n\
              \t# aws_access_key = \"AKID...\"\n\
-             \t# aws_secret_key = \"...\"",
+             \t# aws_secret_key = \"...\"\n\
+             \t# giphy_api_key = \"...\"",
             path.display()
         )
     })?;
@@ -84,6 +88,7 @@ mod tests {
             aws_region: "us-east-1".into(),
             aws_access_key: access.into(),
             aws_secret_key: secret.into(),
+            giphy_api_key: String::new(),
         }
     }
 

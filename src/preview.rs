@@ -239,12 +239,12 @@ async fn save_frames(key: &str, frames: &[DynamicImage]) -> Result<()> {
 /// as soon as it is decoded rather than waiting for the full download to complete.
 pub fn spawn_preview(
     key: String,
-    base_url: String,
+    url: String,
     generation: u64,
     tx: mpsc::UnboundedSender<AppEvent>,
 ) {
     tokio::spawn(async move {
-        if let Err(e) = stream_frames(&key, &base_url, generation, &tx).await {
+        if let Err(e) = stream_frames(&key, &url, generation, &tx).await {
             let _ = tx.send(AppEvent::PreviewError {
                 generation,
                 message: format!("Preview failed: {e:#}"),
@@ -255,7 +255,7 @@ pub fn spawn_preview(
 
 async fn stream_frames(
     key: &str,
-    base_url: &str,
+    url: &str,
     generation: u64,
     tx: &mpsc::UnboundedSender<AppEvent>,
 ) -> Result<()> {
@@ -265,8 +265,7 @@ async fn stream_frames(
         return Ok(());
     }
 
-    let url = format!("{}/{}", base_url.trim_end_matches('/'), key);
-    let response = reqwest::get(&url)
+    let response = reqwest::get(url)
         .await
         .with_context(|| format!("Failed to download preview from {url}"))?;
     if !response.status().is_success() {

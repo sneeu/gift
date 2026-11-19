@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph},
@@ -10,8 +10,8 @@ use crate::app::App;
 
 use super::status_bar;
 
-pub fn draw(f: &mut Frame, app: &mut App) {
-    let area = f.area();
+/// Split the screen into (left list, right preview pane, status bar).
+pub(super) fn split(area: Rect) -> (Rect, Rect, Rect) {
     let width = area.width;
 
     // Responsive split: 28% at ≥160, 33% at ≥120, 40% otherwise
@@ -34,11 +34,46 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         ])
         .split(content_area);
 
-    let left_area = panes[0];
-    let right_area = panes[1];
+    (panes[0], panes[1], status_area)
+}
 
-    // Store the right pane rect for post-draw viuer rendering
-    app.preview_pane_rect = Some(right_area);
+/// Draw the bordered preview pane shell; viuer fills the inner area post-draw.
+pub(super) fn draw_pane(f: &mut Frame, app: &mut App, area: Rect, title: String, empty_text: &str) {
+    // Store the rect for post-draw viuer rendering
+    app.preview_pane_rect = Some(area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(Color::Green))
+        .title(title);
+
+    if app.preview_frames.is_empty() {
+        f.render_widget(Paragraph::new(empty_text.to_owned()).block(block), area);
+    } else {
+        f.render_widget(block, area);
+    }
+}
+
+/// Selectable list styled like the main list.
+pub(super) fn list<'a>(items: Vec<ListItem<'a>>, title: String) -> List<'a> {
+    List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .title(title),
+        )
+        .highlight_style(
+            Style::default()
+                .fg(Color::Blue)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("> ")
+}
+
+pub fn draw(f: &mut Frame, app: &mut App) {
+    let (left_area, right_area, status_area) = split(f.area());
 
     // Left pane: show search results when coming from search, full list otherwise.
     let from_search = app.prev_mode == crate::app::AppMode::Search;
@@ -61,19 +96,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         (items, app.selected, title)
     };
 
-    let list = List::new(list_items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .title(title),
-        )
-        .highlight_style(
-            Style::default()
-                .fg(Color::Blue)
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol("> ");
+    let list = list(list_items, title);
 
     let mut list_state = ListState::default();
     if !app.items.is_empty() {
@@ -81,20 +104,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     }
     f.render_stateful_widget(list, left_area, &mut list_state);
 
-    // Right pane: preview area (viuer renders here post-draw)
-    let preview_block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(Color::Green))
-        .title(preview_title(app));
-
-    if app.preview_frames.is_empty() {
-        let loading = Paragraph::new("Loading…").block(preview_block);
-        f.render_widget(loading, right_area);
-    } else {
-        // Render the block shell — viuer will fill the inner area post-draw
-        f.render_widget(preview_block, right_area);
-    }
+    let title = preview_title(app);
+    draw_pane(f, app, right_area, title, "Loading…");
 
     status_bar::draw_preview(f, app, status_area);
 }

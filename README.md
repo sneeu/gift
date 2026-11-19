@@ -13,3 +13,11 @@ Install with:
 ```sh
 brew install sneeu/tap/gift
 ```
+
+## Giphy
+
+Press `g` to search Giphy, then `Enter` on a result to upload it. Requires an API key from the [Giphy developer dashboard](https://developers.giphy.com/dashboard/) in `~/.config/gift.toml`:
+
+```toml
+giphy_api_key = "..."
+```

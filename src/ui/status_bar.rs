@@ -7,10 +7,12 @@ use ratatui::{
 };
 
 use crate::app::App;
+use crate::widgets::text_input::TextInput;
 
 const HINT_LIST: &str =
-    "j/k Move  Enter Preview  / Search  u Upload  n Rename  d Delete  c Copy URL  f/s/t Sort  r Refresh  ? Help  q Quit";
+    "j/k Move  Enter Preview  / Search  u Upload  g Giphy  n Rename  d Delete  c Copy URL  f/s/t Sort  r Refresh  ? Help  q Quit";
 const HINT_PREVIEW: &str = "Esc Back  j/k Navigate  c Copy URL  o Open  n Rename";
+const HINT_GIPHY_RESULTS: &str = "Esc Back  j/k Navigate  Enter Upload  / Edit query  o Open";
 
 pub fn draw_list(f: &mut Frame, app: &App, area: Rect) {
     draw_with_hint(f, app, area, HINT_LIST);
@@ -20,8 +22,16 @@ pub fn draw_preview(f: &mut Frame, app: &App, area: Rect) {
     draw_with_hint(f, app, area, HINT_PREVIEW);
 }
 
+pub fn draw_giphy_results(f: &mut Frame, app: &App, area: Rect) {
+    draw_with_hint(f, app, area, HINT_GIPHY_RESULTS);
+}
+
 pub fn draw_search(f: &mut Frame, app: &App, area: Rect) {
-    // Status bar shows the search query with a cursor indicator.
+    draw_input(f, app, area, "/", &app.search_input);
+}
+
+/// Show `input` after `prefix` with a cursor indicator, unless a status message is set.
+pub fn draw_input(f: &mut Frame, app: &App, area: Rect, prefix: &str, input: &TextInput) {
     if let Some(ref msg) = app.status_message {
         let style = if app.status_is_error {
             Style::default().fg(Color::Red)
@@ -33,10 +43,9 @@ pub fn draw_search(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let query = app.search_input.value();
     let line = Line::from(vec![
-        Span::raw("/"),
-        Span::raw(query),
+        Span::raw(prefix.to_owned()),
+        Span::raw(input.value()),
         Span::styled("█", Style::default().fg(Color::Gray)),
     ]);
     f.render_widget(Paragraph::new(line), area);

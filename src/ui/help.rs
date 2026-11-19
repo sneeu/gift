@@ -10,7 +10,8 @@ use ratatui::{
 use crate::app::App;
 
 pub fn draw(f: &mut Frame, _app: &App) {
-    let area = popup_area(f.area(), 50, 27);
+    let lines = help_lines();
+    let area = popup_area(f.area(), 50, lines.len() as u16 + 2);
     f.render_widget(Clear, area);
 
     let block = Block::default()
@@ -22,7 +23,6 @@ pub fn draw(f: &mut Frame, _app: &App) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let lines = help_lines();
     let para = Paragraph::new(lines).alignment(Alignment::Left);
     f.render_widget(para, inner);
 }
@@ -59,10 +59,12 @@ fn help_lines() -> Vec<Line<'static>> {
         binding("Enter", "Preview selected"),
         binding("/", "Search"),
         binding("u", "Upload"),
+        binding("g", "Search Giphy"),
         binding("n", "Rename"),
         binding("d", "Delete"),
         binding("c", "Copy URL"),
         binding("o", "Open in browser"),
+        binding("f / s / t", "Sort by name / size / time"),
         binding("r", "Refresh list"),
         binding("q / Ctrl+C", "Quit"),
         blank(),
@@ -78,6 +80,13 @@ fn help_lines() -> Vec<Line<'static>> {
         binding("Tab", "Switch field"),
         binding("Enter", "Submit"),
         binding("Esc", "Cancel"),
+        blank(),
+        section("Giphy"),
+        binding("Enter", "Search / upload selected"),
+        binding("j / ↓, k / ↑", "Navigate results"),
+        binding("/", "Edit query"),
+        binding("o", "Open in browser"),
+        binding("Esc", "Back to list"),
         blank(),
         binding("? / Esc", "Close help"),
     ]

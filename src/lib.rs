@@ -3,6 +3,7 @@ pub mod cache;
 pub mod config;
 pub mod download;
 pub mod events;
+pub mod giphy;
 pub mod handlers;
 pub mod preview;
 pub mod run;

@@ -3,6 +3,7 @@ use ratatui::Frame;
 use crate::app::{App, AppMode};
 
 mod delete;
+mod giphy;
 mod help;
 mod list;
 mod preview;
@@ -39,6 +40,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         AppMode::Help => {
             list::draw(f, app);
             help::draw(f, app);
+        }
+        AppMode::GiphySearch | AppMode::GiphyResults => {
+            giphy::draw(f, app);
         }
     }
 }

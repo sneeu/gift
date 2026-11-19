@@ -22,14 +22,7 @@ pub fn handle(
                 app.selected = list_idx;
                 let key_str = app.selected_item().map(|i| i.key.clone()).unwrap_or_default();
                 app.enter_preview();
-                if !app.load_preview_cached(&key_str) {
-                    crate::preview::spawn_preview(
-                        key_str,
-                        config.base_url.clone(),
-                        app.preview_generation,
-                        tx.clone(),
-                    );
-                }
+                super::common::show_s3_preview(app, config, tx, key_str);
             }
         }
         KeyCode::Up => app.search_move_up(),

@@ -1,3 +1,4 @@
+use crate::giphy::GiphyGif;
 use crate::search::fuzzy_search;
 use crate::widgets::text_input::TextInput;
 use fuzzy_matcher::skim::SkimMatcherV2;
@@ -74,6 +75,25 @@ pub enum AppMode {
     RenameForm,
     DeleteConfirm,
     Help,
+    /// Typing a Giphy query.
+    GiphySearch,
+    /// Browsing Giphy results.
+    GiphyResults,
+}
+
+impl AppMode {
+    /// Modes where printable keys are text input rather than commands.
+    pub fn takes_text(&self) -> bool {
+        matches!(
+            self,
+            AppMode::Search | AppMode::UploadForm | AppMode::RenameForm | AppMode::GiphySearch
+        )
+    }
+
+    /// Modes that render GIF frames into `preview_pane_rect`.
+    pub fn shows_preview(&self) -> bool {
+        matches!(self, AppMode::Preview | AppMode::GiphySearch | AppMode::GiphyResults)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -89,6 +109,20 @@ pub struct UploadForm {
     pub name: TextInput,
     pub focused: UploadField,
     pub confirm_overwrite: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct GiphyState {
+    pub query: TextInput,
+    pub results: Vec<GiphyGif>,
+    pub selected: usize,
+    pub is_searching: bool,
+}
+
+impl GiphyState {
+    pub fn selected_gif(&self) -> Option<&GiphyGif> {
+        self.results.get(self.selected)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -109,6 +143,7 @@ pub struct App {
     pub is_loading: bool,
     pub upload_form: UploadForm,
     pub rename_form: RenameForm,
+    pub giphy: GiphyState,
     pub preview_frames: Vec<DynamicImage>,
     pub preview_frame_index: usize,
     pub spinner_tick: usize,
@@ -140,6 +175,7 @@ impl App {
             is_loading: true,
             upload_form: UploadForm::default(),
             rename_form: RenameForm::default(),
+            giphy: GiphyState::default(),
             preview_frames: Vec::new(),
             preview_frame_index: 0,
             spinner_tick: 0,
@@ -270,6 +306,33 @@ impl App {
     pub fn enter_upload(&mut self) {
         self.mode = AppMode::UploadForm;
         self.upload_form = UploadForm::default();
+    }
+
+    pub fn enter_giphy(&mut self) {
+        self.mode = AppMode::GiphySearch;
+        self.giphy = GiphyState::default();
+        self.preview_frames.clear();
+        self.preview_frame_index = 0;
+        self.needs_clear = true;
+    }
+
+    /// Open the upload form prefilled from a Giphy result, with focus on the name.
+    pub fn enter_upload_from_giphy(&mut self, gif: &GiphyGif) {
+        self.enter_upload();
+        self.upload_form.source.set_value(&gif.original_url);
+        self.upload_form.name.set_value(&gif.suggested_name());
+        self.upload_form.focused = UploadField::Name;
+        self.needs_clear = true;
+    }
+
+    pub fn giphy_move_up(&mut self) {
+        self.giphy.selected = self.giphy.selected.saturating_sub(1);
+    }
+
+    pub fn giphy_move_down(&mut self) {
+        if self.giphy.selected + 1 < self.giphy.results.len() {
+            self.giphy.selected += 1;
+        }
     }
 
     pub fn enter_rename(&mut self) {
@@ -524,6 +587,44 @@ mod tests {
         app.set_items(vec![item("a.gif")]);
         assert_eq!(app.search_results, vec![0]);
         assert_eq!(app.search_selected, 0);
+    }
+
+    fn giphy_gif(id: &str) -> GiphyGif {
+        GiphyGif {
+            id: id.into(),
+            title: "Happy Cat GIF".into(),
+            preview_url: String::new(),
+            original_url: format!("https://media.giphy.com/{id}/giphy.gif"),
+        }
+    }
+
+    #[test]
+    fn enter_upload_from_giphy_prefills_form() {
+        let mut app = App::new();
+        app.enter_upload_from_giphy(&giphy_gif("abc"));
+        assert_eq!(app.mode, AppMode::UploadForm);
+        assert_eq!(app.upload_form.source.value(), "https://media.giphy.com/abc/giphy.gif");
+        assert_eq!(app.upload_form.name.value(), "happy-cat");
+        assert_eq!(app.upload_form.focused, UploadField::Name);
+    }
+
+    #[test]
+    fn giphy_navigation_clamps() {
+        let mut app = App::new();
+        app.giphy.results = vec![giphy_gif("a"), giphy_gif("b")];
+        app.giphy_move_up();
+        assert_eq!(app.giphy.selected, 0);
+        app.giphy_move_down();
+        app.giphy_move_down();
+        assert_eq!(app.giphy.selected, 1);
+    }
+
+    #[test]
+    fn q_is_text_in_input_modes() {
+        assert!(AppMode::GiphySearch.takes_text());
+        assert!(AppMode::UploadForm.takes_text());
+        assert!(!AppMode::List.takes_text());
+        assert!(!AppMode::GiphyResults.takes_text());
     }
 
     #[test]

@@ -1,6 +1,7 @@
 use image::DynamicImage;
 
 use crate::app::GifItem;
+use crate::giphy::GiphyGif;
 
 /// Results sent from background tasks back to the event loop.
 #[derive(Debug)]
@@ -9,6 +10,8 @@ pub enum AppEvent {
     ListCached(Vec<GifItem>),
     /// S3 listing completed.
     ListResult(anyhow::Result<Vec<GifItem>>),
+    /// Giphy search completed for `query`.
+    GiphyResult { query: String, result: anyhow::Result<Vec<GiphyGif>> },
     /// Upload completed with the public URL.
     UploadComplete(anyhow::Result<String>),
     /// Delete completed.

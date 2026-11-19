@@ -82,7 +82,7 @@ async fn event_loop(
             maybe_event = events.next() => {
                 match maybe_event {
                     Some(Ok(Event::Key(key))) => {
-                        if should_quit(&key) {
+                        if should_quit(&app.mode, &key) {
                             break;
                         }
                         dispatch_key(&mut app, key, &config, &client, &tx);
@@ -121,12 +121,13 @@ async fn event_loop(
     Ok(())
 }
 
-fn should_quit(key: &KeyEvent) -> bool {
-    matches!(
-        (key.code, key.modifiers),
-        (KeyCode::Char('q'), KeyModifiers::NONE)
-            | (KeyCode::Char('c'), KeyModifiers::CONTROL)
-    )
+/// Ctrl+C always quits; `q` only where it isn't text input.
+fn should_quit(mode: &AppMode, key: &KeyEvent) -> bool {
+    match (key.code, key.modifiers) {
+        (KeyCode::Char('c'), KeyModifiers::CONTROL) => true,
+        (KeyCode::Char('q'), KeyModifiers::NONE) => !mode.takes_text(),
+        _ => false,
+    }
 }
 
 fn dispatch_key(
@@ -136,9 +137,6 @@ fn dispatch_key(
     client: &Client,
     tx: &mpsc::UnboundedSender<AppEvent>,
 ) {
-    if should_quit(&key) {
-        return;
-    }
     match app.mode {
         AppMode::List => handlers::list::handle(app, key, config, client, tx),
         AppMode::Search => handlers::search::handle(app, key, config, client, tx),
@@ -147,6 +145,8 @@ fn dispatch_key(
         AppMode::RenameForm => handlers::rename::handle(app, key, config, client, tx),
         AppMode::DeleteConfirm => handlers::delete::handle(app, key, config, client, tx),
         AppMode::Help => handlers::help::handle(app, key),
+        AppMode::GiphySearch => handlers::giphy::handle_search(app, key, config, tx),
+        AppMode::GiphyResults => handlers::giphy::handle_results(app, key, tx),
     }
 }
 
@@ -161,6 +161,9 @@ fn dispatch_paste(app: &mut App, text: &str) {
         },
         AppMode::RenameForm => {
             app.rename_form.to.insert_str(text);
+        }
+        AppMode::GiphySearch => {
+            app.giphy.query.insert_str(text);
         }
         _ => {}
     }
@@ -182,6 +185,9 @@ fn handle_app_event(
         AppEvent::ListResult(Err(e)) => {
             app.is_loading = false;
             app.set_status(format!("Error loading GIFs: {e:#}"), true);
+        }
+        AppEvent::GiphyResult { query, result } => {
+            handlers::giphy::apply_result(app, query, result, tx);
         }
         AppEvent::UploadComplete(Ok(url)) => {
             app.is_loading = false;
@@ -243,7 +249,7 @@ fn handle_app_event(
 }
 
 fn render_viuer_frame(app: &App) -> anyhow::Result<()> {
-    if app.mode != AppMode::Preview {
+    if !app.mode.shows_preview() {
         return Ok(());
     }
     let Some(frame) = app.preview_frames.get(app.preview_frame_index) else {
