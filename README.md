@@ -11,5 +11,5 @@ I think it looks pretty cool:
 Install with:
 
 ```sh
-brew install sneeu/gift/gift
+brew install sneeu/tap/gift
 ```
